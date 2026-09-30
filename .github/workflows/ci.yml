@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: flask-student-app-${{ github.ref }}
+  cancel-in-progress: true
+  
 permissions:
   id-token: write
   contents: read
@@ -93,7 +97,7 @@ jobs:
           IMAGE_TAG="${{ github.sha }}"
           ECR_REPO="789193817635.dkr.ecr.us-east-1.amazonaws.com/flask-student-app"
 
-          echo "Checking whether image already exists..."
+          echo "Checking whether image already exists in ECR..."
 
           if aws ecr describe-images \
             --repository-name flask-student-app \
@@ -115,20 +119,38 @@ jobs:
             else
 
               echo "Docker push failed."
-              echo "Checking whether another workflow pushed the image..."
+              echo "Checking ECR for the image..."
 
-              if aws ecr describe-images \
-                --repository-name flask-student-app \
-                --image-ids imageTag="$IMAGE_TAG" \
-                --region us-east-1 > /dev/null 2>&1; then
+              IMAGE_FOUND=false
 
-                echo "Image now exists in ECR."
-                echo "Another workflow likely pushed the same immutable tag."
-                echo "Continuing deployment."
+              for i in 1 2 3 4 5; do
+
+                echo "ECR check attempt $i..."
+
+                if aws ecr describe-images \
+                  --repository-name flask-student-app \
+                  --image-ids imageTag="$IMAGE_TAG" \
+                  --region us-east-1 > /dev/null 2>&1; then
+
+                  echo "Image $IMAGE_TAG exists in ECR."
+                  echo "Another workflow/run already pushed this image."
+                  IMAGE_FOUND=true
+                  break
+
+                fi
+
+                echo "Image not found yet. Waiting 5 seconds..."
+                sleep 5
+
+              done
+
+              if [ "$IMAGE_FOUND" = true ]; then
+
+                echo "Continuing because image exists in ECR."
 
               else
 
-                echo "Image push failed and image does not exist in ECR."
+                echo "Image push failed and image was not found in ECR."
                 exit 1
 
               fi
