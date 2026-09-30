@@ -93,23 +93,49 @@ jobs:
           IMAGE_TAG="${{ github.sha }}"
           ECR_REPO="789193817635.dkr.ecr.us-east-1.amazonaws.com/flask-student-app"
 
-          if aws ecr describe-images \
-           --repository-name flask-student-app \
-           --image-ids imageTag="$IMAGE_TAG" \
-           --region us-east-1 > /dev/null 2>&1; then
+          echo "Checking whether image already exists..."
 
-           echo "Image $IMAGE_TAG already exists in ECR."
-           echo "Skipping push because ECR tags are immutable."
+          if aws ecr describe-images \
+            --repository-name flask-student-app \
+            --image-ids imageTag="$IMAGE_TAG" \
+            --region us-east-1 > /dev/null 2>&1; then
+
+            echo "Image $IMAGE_TAG already exists in ECR."
+            echo "Skipping push."
 
           else
 
-           echo "Image $IMAGE_TAG does not exist."
-           echo "Pushing image to ECR..."
+            echo "Image $IMAGE_TAG does not exist."
+            echo "Attempting to push image..."
 
-           docker push "$ECR_REPO:$IMAGE_TAG"
+            if docker push "$ECR_REPO:$IMAGE_TAG"; then
+
+              echo "Image pushed successfully."
+
+            else
+
+              echo "Docker push failed."
+              echo "Checking whether another workflow pushed the image..."
+
+              if aws ecr describe-images \
+                --repository-name flask-student-app \
+                --image-ids imageTag="$IMAGE_TAG" \
+                --region us-east-1 > /dev/null 2>&1; then
+
+                echo "Image now exists in ECR."
+                echo "Another workflow likely pushed the same immutable tag."
+                echo "Continuing deployment."
+
+              else
+
+                echo "Image push failed and image does not exist in ECR."
+                exit 1
+
+              fi
+
+            fi
 
           fi
-
   deploy:
     needs: build
     runs-on: ubuntu-latest
