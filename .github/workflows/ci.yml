@@ -8,7 +8,7 @@ on:
 concurrency:
   group: flask-student-app-${{ github.ref }}
   cancel-in-progress: true
-  
+
 permissions:
   id-token: write
   contents: read
@@ -85,79 +85,20 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t flask-student-app:${{ github.sha }} .
+          docker build \
+            -t flask-student-app:${{ github.sha }}-${{ github.run_attempt }} .
 
       - name: Tag Docker image
         run: |
-          docker tag flask-student-app:${{ github.sha }} \
-            789193817635.dkr.ecr.us-east-1.amazonaws.com/flask-student-app:${{ github.sha }}
+          docker tag \
+            flask-student-app:${{ github.sha }}-${{ github.run_attempt }} \
+            789193817635.dkr.ecr.us-east-1.amazonaws.com/flask-student-app:${{ github.sha }}-${{ github.run_attempt }}
 
       - name: Push Docker image to ECR
         run: |
-          IMAGE_TAG="${{ github.sha }}"
-          ECR_REPO="789193817635.dkr.ecr.us-east-1.amazonaws.com/flask-student-app"
+          docker push \
+            789193817635.dkr.ecr.us-east-1.amazonaws.com/flask-student-app:${{ github.sha }}-${{ github.run_attempt }}
 
-          echo "Checking whether image already exists in ECR..."
-
-          if aws ecr describe-images \
-            --repository-name flask-student-app \
-            --image-ids imageTag="$IMAGE_TAG" \
-            --region us-east-1 > /dev/null 2>&1; then
-
-            echo "Image $IMAGE_TAG already exists in ECR."
-            echo "Skipping push."
-
-          else
-
-            echo "Image $IMAGE_TAG does not exist."
-            echo "Attempting to push image..."
-
-            if docker push "$ECR_REPO:$IMAGE_TAG"; then
-
-              echo "Image pushed successfully."
-
-            else
-
-              echo "Docker push failed."
-              echo "Checking ECR for the image..."
-
-              IMAGE_FOUND=false
-
-              for i in 1 2 3 4 5; do
-
-                echo "ECR check attempt $i..."
-
-                if aws ecr describe-images \
-                  --repository-name flask-student-app \
-                  --image-ids imageTag="$IMAGE_TAG" \
-                  --region us-east-1 > /dev/null 2>&1; then
-
-                  echo "Image $IMAGE_TAG exists in ECR."
-                  echo "Another workflow/run already pushed this image."
-                  IMAGE_FOUND=true
-                  break
-
-                fi
-
-                echo "Image not found yet. Waiting 5 seconds..."
-                sleep 5
-
-              done
-
-              if [ "$IMAGE_FOUND" = true ]; then
-
-                echo "Continuing because image exists in ECR."
-
-              else
-
-                echo "Image push failed and image was not found in ECR."
-                exit 1
-
-              fi
-
-            fi
-
-          fi
   deploy:
     needs: build
     runs-on: ubuntu-latest
@@ -168,7 +109,7 @@ jobs:
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ github.sha }}-${{ github.run_attempt }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
@@ -220,6 +161,7 @@ jobs:
             sudo docker logs flask-student-app
 
             exit 1
+
   notification:
     needs:
       - test
@@ -262,7 +204,7 @@ jobs:
             ${{ github.sha }}
 
             Docker Image:
-            789193817635.dkr.ecr.us-east-1.amazonaws.com/flask-student-app:${{ github.sha }}
+            789193817635.dkr.ecr.us-east-1.amazonaws.com/flask-student-app:${{ github.sha }}-${{ github.run_attempt }}
 
             Deployment:
             Amazon EC2
@@ -277,7 +219,6 @@ jobs:
 
             The application was successfully deployed
             and passed the health check.
-
 
       - name: Send failure email
         if: |
@@ -319,4 +260,4 @@ jobs:
             Deploy: ${{ needs.deploy.result }}
 
             Please open the GitHub Actions run above
-            to investigate the failed stage.  
+            to investigate the failed stage.
